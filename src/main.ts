@@ -117,8 +117,8 @@ function getSelectionInfo(node: SceneNode): SelectionInfo {
   };
 }
 
-function findNodeById(nodeId: string): SceneNode | null {
-  const node = figma.getNodeById(nodeId);
+async function findNodeById(nodeId: string): Promise<SceneNode | null> {
+  const node = await figma.getNodeByIdAsync(nodeId);
   if (!node || node.removed) return null;
   return "type" in node ? (node as SceneNode) : null;
 }
@@ -137,7 +137,7 @@ figma.on("currentpagechange", broadcastSelection);
 // ---- message handling ----
 
 async function linkKey(nodeId: string, link: TolgeeLink): Promise<void> {
-  const node = findNodeById(nodeId);
+  const node = await findNodeById(nodeId);
   if (!node) {
     postToUi({ type: "error", message: "The selected node no longer exists." });
     return;
@@ -173,7 +173,7 @@ async function linkKey(nodeId: string, link: TolgeeLink): Promise<void> {
 }
 
 async function unlinkKey(nodeId: string): Promise<void> {
-  const node = findNodeById(nodeId);
+  const node = await findNodeById(nodeId);
   if (!node) {
     postToUi({ type: "error", message: "The selected node no longer exists." });
     return;
@@ -193,7 +193,8 @@ async function unlinkKey(nodeId: string): Promise<void> {
   postToUi({ type: "key-unlinked", nodeId });
 }
 
-function listLinkedNodes(): void {
+async function listLinkedNodes(): Promise<void> {
+  await figma.loadAllPagesAsync();
   const nodes: LinkedNodeInfo[] = [];
   for (const page of figma.root.children) {
     page.findAll((n) => {
@@ -208,7 +209,7 @@ function listLinkedNodes(): void {
 }
 
 async function jumpToNode(nodeId: string): Promise<void> {
-  const node = findNodeById(nodeId);
+  const node = await findNodeById(nodeId);
   if (!node) {
     postToUi({ type: "error", message: "The selected node no longer exists." });
     return;
@@ -254,7 +255,7 @@ onMessageFromUi((message: UiToMainMessage) => {
       void unlinkKey(message.nodeId);
       break;
     case "list-linked-nodes":
-      listLinkedNodes();
+      void listLinkedNodes();
       break;
     case "jump-to-node":
       void jumpToNode(message.nodeId);
