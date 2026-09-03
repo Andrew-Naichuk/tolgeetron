@@ -50,27 +50,30 @@ async function request<T>(
 
 /** Create a new key (or update translations of an existing key with the
  * same name) and set its base-language translation.
- * See: https://docs.tolgee.io/api/create-or-update-translations */
+ * POST /v2/projects/{projectId}/translations -> SetTranslationsWithKeyDto,
+ * per TranslationsController.kt / SetTranslationsWithKeyDto.kt in
+ * tolgee-platform. The response (SetTranslationsResponseModel) carries
+ * keyId/keyName/keyNamespace at the top level. */
 export async function createOrUpdateKey(
   config: TolgeeClientConfig,
   params: { keyName: string; namespace?: string; baseLanguage: string; text: string }
 ): Promise<{ keyId: number }> {
-  const result = await request<{ keyId: number }>(
-    config,
-    "/keys/create-or-update-translations",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        key: { name: params.keyName, namespace: params.namespace },
-        translations: { [params.baseLanguage]: params.text },
-      }),
-    }
-  );
+  const result = await request<{ keyId: number }>(config, "/translations", {
+    method: "POST",
+    body: JSON.stringify({
+      key: params.keyName,
+      namespace: params.namespace,
+      translations: { [params.baseLanguage]: params.text },
+    }),
+  });
   return result;
 }
 
 /** Search existing keys by name/translation text.
- * See: https://docs.tolgee.io/api/search-for-key */
+ * GET /v2/projects/{projectId}/keys/search, per KeyController.kt. Each
+ * result's fields are id/name/namespace/baseTranslation, per
+ * KeySearchResultView.kt (embedded under "keys", per the @Relation on
+ * KeySearchSearchResultModel.kt). */
 export async function searchKeys(
   config: TolgeeClientConfig,
   search: string
@@ -78,12 +81,15 @@ export async function searchKeys(
   if (!search.trim()) return [];
   const query = new URLSearchParams({ search, size: "20" });
   const result = await request<{
-    _embedded?: { keys?: Array<{ keyId: number; keyName: string; keyNamespace?: string }> };
+    _embedded?: {
+      keys?: Array<{ id: number; name: string; namespace?: string; baseTranslation?: string }>;
+    };
   }>(config, `/keys/search?${query.toString()}`);
   return (result._embedded?.keys ?? []).map((k) => ({
-    keyId: k.keyId,
-    keyName: k.keyName,
-    namespace: k.keyNamespace,
+    keyId: k.id,
+    keyName: k.name,
+    namespace: k.namespace,
+    baseTranslation: k.baseTranslation,
   }));
 }
 
