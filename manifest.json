@@ -1,0 +1,13 @@
+{
+  "name": "Tolgeetron",
+  "id": "tolgeetron-dev",
+  "api": "1.0.0",
+  "main": "dist/main.js",
+  "ui": "dist/ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["https://app.tolgee.io"],
+    "reasoning": "Connects to the Tolgee project configured in plugin settings to create and search translation keys. Self-hosted Tolgee instances must add their domain here and rebuild the plugin."
+  }
+}

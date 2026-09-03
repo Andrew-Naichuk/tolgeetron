@@ -1,0 +1,87 @@
+/** Shared types used by both the plugin sandbox (main.ts) and the UI (ui.tsx). */
+
+/** Non-secret Tolgee connection settings, stored on the document so the
+ * whole team opening this file shares the same project wiring. */
+export interface DocumentSettings {
+  apiUrl: string;
+  projectId: string;
+  /** Id of the "Localization" AnnotationCategory once created, cached so we
+   * don't recreate/duplicate it on every use. */
+  annotationCategoryId?: string;
+}
+
+/** The secret project API key, stored per-user in figma.clientStorage and
+ * never written into the document. */
+export interface ClientSettings {
+  apiKey: string;
+}
+
+/** Structured, durable link between a Figma node and a Tolgee key, stored in
+ * the node's pluginData. The visible Figma annotation label is just the key
+ * name and can drift; this is the source of truth. */
+export interface TolgeeLink {
+  keyId: number;
+  keyName: string;
+  namespace?: string;
+  projectId: string;
+  /** Base-language translation text at the time of linking, shown as a
+   * preview until the user refreshes it. */
+  baseTranslationPreview?: string;
+}
+
+/** Minimal shape of the currently selected node, as reported by main.ts. */
+export interface SelectionInfo {
+  nodeId: string;
+  name: string;
+  type: string;
+  /** Whether this node type supports Figma's annotations API. */
+  supportsAnnotations: boolean;
+  /** Text content, if the node is a TextNode (used to pre-fill a suggested
+   * base translation when creating a new key). */
+  textContent?: string;
+  link: TolgeeLink | null;
+}
+
+/** One row in the "keys in this file" panel. */
+export interface LinkedNodeInfo {
+  nodeId: string;
+  nodeName: string;
+  pageName: string;
+  link: TolgeeLink;
+}
+
+export interface TolgeeKeySearchResult {
+  keyId: number;
+  keyName: string;
+  namespace?: string;
+  baseTranslation?: string;
+}
+
+// ---- postMessage protocol between ui.tsx and main.ts ----
+
+export type UiToMainMessage =
+  | { type: "ui-ready" }
+  | { type: "get-settings" }
+  | { type: "save-document-settings"; settings: DocumentSettings }
+  | { type: "save-api-key"; apiKey: string }
+  | {
+      type: "link-key";
+      nodeId: string;
+      link: TolgeeLink;
+    }
+  | { type: "unlink-key"; nodeId: string }
+  | { type: "list-linked-nodes" }
+  | { type: "jump-to-node"; nodeId: string }
+  | { type: "resize"; width: number; height: number };
+
+export type MainToUiMessage =
+  | { type: "document-settings"; settings: DocumentSettings }
+  /** Sent once on load with the API key from figma.clientStorage (main-thread
+   * only API), so the UI can hold it in memory to make Tolgee requests. It is
+   * never written back into the document. */
+  | { type: "client-settings"; settings: ClientSettings }
+  | { type: "selection-changed"; selection: SelectionInfo | null }
+  | { type: "key-linked"; nodeId: string; link: TolgeeLink }
+  | { type: "key-unlinked"; nodeId: string }
+  | { type: "linked-nodes"; nodes: LinkedNodeInfo[] }
+  | { type: "error"; message: string };
