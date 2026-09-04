@@ -13,6 +13,7 @@ const LINK_KEY = "tolgeeLink";
 const CLIENT_STORAGE_API_KEY = "tolgeeApiKey";
 const ANNOTATION_CATEGORY_LABEL = "Localization";
 const ANNOTATION_CATEGORY_COLOR: AnnotationCategoryColor = "pink";
+const VARIABLE_COLLECTION_NAME = "Localization";
 
 /** Node types that support Figma's annotations API. */
 const ANNOTATABLE_TYPES = new Set<SceneNode["type"]>([
@@ -86,6 +87,86 @@ async function ensureLocalizationCategory(): Promise<string> {
   return created.id;
 }
 
+// ---- string variables (TEXT nodes) ----
+
+async function ensureLocalizationCollection(): Promise<VariableCollection> {
+  const settings = loadDocumentSettings();
+  const collections = await figma.variables.getLocalVariableCollectionsAsync();
+
+  if (settings.variableCollectionId) {
+    const existing = collections.find((c) => c.id === settings.variableCollectionId);
+    if (existing) return existing;
+  }
+
+  const byName = collections.find((c) => c.name === VARIABLE_COLLECTION_NAME);
+  if (byName) {
+    saveDocumentSettings({ ...settings, variableCollectionId: byName.id });
+    return byName;
+  }
+
+  const created = figma.variables.createVariableCollection(VARIABLE_COLLECTION_NAME);
+  saveDocumentSettings({ ...settings, variableCollectionId: created.id });
+  return created;
+}
+
+function variableNameForLink(link: TolgeeLink): string {
+  return link.namespace ? `${link.namespace}/${link.keyName}` : link.keyName;
+}
+
+async function loadTextNodeFonts(node: TextNode): Promise<void> {
+  const fonts =
+    node.fontName === figma.mixed
+      ? node.getRangeAllFontNames(0, node.characters.length)
+      : [node.fontName];
+  const unique = new Map<string, FontName>();
+  for (const font of fonts) {
+    unique.set(`${font.family}__${font.style}`, font);
+  }
+  await Promise.all([...unique.values()].map((font) => figma.loadFontAsync(font)));
+}
+
+async function bindLocalizationVariable(
+  textNode: TextNode,
+  link: TolgeeLink
+): Promise<string> {
+  const collection = await ensureLocalizationCollection();
+  const name = variableNameForLink(link);
+  const modeId = collection.modes[0].modeId;
+  const value = textNode.characters;
+
+  const locals = await figma.variables.getLocalVariablesAsync("STRING");
+  let variable =
+    locals.find((v) => v.variableCollectionId === collection.id && v.name === name) ??
+    null;
+
+  if (!variable) {
+    variable = figma.variables.createVariable(name, collection, "STRING");
+  }
+
+  variable.setValueForMode(modeId, value);
+  await loadTextNodeFonts(textNode);
+  textNode.setBoundVariable("characters", variable);
+  return variable.id;
+}
+
+async function removeLocalizationVariable(
+  node: SceneNode,
+  variableId: string
+): Promise<void> {
+  if (node.type === "TEXT") {
+    try {
+      await loadTextNodeFonts(node);
+      node.setBoundVariable("characters", null);
+    } catch {
+      // Node may already be unbound or fonts unavailable; still try to delete.
+    }
+  }
+  const variable = await figma.variables.getVariableByIdAsync(variableId);
+  if (variable) {
+    variable.remove();
+  }
+}
+
 // ---- node <-> Tolgee link helpers ----
 
 function readLink(node: SceneNode): TolgeeLink | null {
@@ -151,6 +232,12 @@ async function linkKey(nodeId: string, link: TolgeeLink): Promise<void> {
   }
 
   try {
+    let linked: TolgeeLink = link;
+    if (node.type === "TEXT") {
+      const variableId = await bindLocalizationVariable(node, link);
+      linked = { ...link, variableId };
+    }
+
     const categoryId = await ensureLocalizationCategory();
     const annotatable = node as SceneNode & {
       annotations: readonly Annotation[];
@@ -160,10 +247,10 @@ async function linkKey(nodeId: string, link: TolgeeLink): Promise<void> {
     );
     annotatable.annotations = [
       ...withoutTolgeeAnnotations,
-      { label: link.keyName, categoryId },
+      { label: linked.keyName, categoryId },
     ];
-    writeLink(node, link);
-    postToUi({ type: "key-linked", nodeId, link });
+    writeLink(node, linked);
+    postToUi({ type: "key-linked", nodeId, link: linked });
   } catch (err) {
     postToUi({
       type: "error",
@@ -177,6 +264,19 @@ async function unlinkKey(nodeId: string): Promise<void> {
   if (!node) {
     postToUi({ type: "error", message: "The selected node no longer exists." });
     return;
+  }
+  const existingLink = readLink(node);
+  if (existingLink?.variableId) {
+    try {
+      await removeLocalizationVariable(node, existingLink.variableId);
+    } catch (err) {
+      postToUi({
+        type: "error",
+        message:
+          err instanceof Error ? err.message : "Failed to remove localization variable.",
+      });
+      return;
+    }
   }
   try {
     const categoryId = await ensureLocalizationCategory();

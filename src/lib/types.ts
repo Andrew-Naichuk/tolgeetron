@@ -8,6 +8,9 @@ export interface DocumentSettings {
   /** Id of the "Localization" AnnotationCategory once created, cached so we
    * don't recreate/duplicate it on every use. */
   annotationCategoryId?: string;
+  /** Id of the "Localization" VariableCollection once created, cached so we
+   * don't recreate/duplicate it on every use. */
+  variableCollectionId?: string;
 }
 
 /** The secret project API key, stored per-user in figma.clientStorage and
@@ -27,6 +30,9 @@ export interface TolgeeLink {
   /** Base-language translation text at the time of linking, shown as a
    * preview until the user refreshes it. */
   baseTranslationPreview?: string;
+  /** Id of the Figma STRING variable created for TEXT nodes and bound to
+   * characters. Cleared when the key is unlinked (variable is deleted). */
+  variableId?: string;
 }
 
 /** Minimal shape of the currently selected node, as reported by main.ts. */
