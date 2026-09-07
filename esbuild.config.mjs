@@ -16,9 +16,17 @@ function writeUiHtml() {
   <head>
     <meta charset="utf-8" />
     <style>
-      html, body { margin: 0; padding: 0; }
-      body { font: 11px sans-serif; color: #1e1e1e; }
+      *, *::before, *::after { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; height: 100%; }
+      body {
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-size: 16px;
+        color: #2e2e2e;
+        background: #fff;
+      }
       #root { height: 100vh; }
+      button, input, textarea { font: inherit; }
+      ::placeholder { color: #888; }
     </style>
   </head>
   <body>

@@ -1,6 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { onMessageFromMain, postToMain } from "../lib/messaging";
 import type { DocumentSettings, LinkedNodeInfo, SelectionInfo } from "../lib/types";
+import { colors, font } from "./theme";
 import { AnnotateSelection } from "./screens/AnnotateSelection";
 import { KeyList } from "./screens/KeyList";
 import { Settings } from "./screens/Settings";
@@ -8,6 +9,12 @@ import { Settings } from "./screens/Settings";
 type Tab = "annotate" | "keys" | "settings";
 
 const DEFAULT_SETTINGS: DocumentSettings = { apiUrl: "https://app.tolgee.io", projectId: "" };
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "annotate", label: "Annotate" },
+  { id: "keys", label: "Keys" },
+  { id: "settings", label: "Settings" },
+];
 
 export function App() {
   const [tab, setTab] = useState<Tab>("annotate");
@@ -58,62 +65,71 @@ export function App() {
   const config = { apiUrl: documentSettings.apiUrl, projectId: documentSettings.projectId, apiKey };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <nav style={{ display: "flex", borderBottom: "1px solid #eee" }}>
-        <TabButton active={tab === "annotate"} onClick={() => setTab("annotate")}>
-          Annotate
-        </TabButton>
-        <TabButton active={tab === "keys"} onClick={() => setTab("keys")}>
-          Keys in file
-        </TabButton>
-        <TabButton active={tab === "settings"} onClick={() => setTab("settings")}>
-          Settings
-        </TabButton>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: colors.white }}>
+      <nav style={{ display: "flex", flexShrink: 0 }}>
+        {TABS.map(({ id, label }) => {
+          const active = tab === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setTab(id)}
+              style={{
+                flex: 1,
+                padding: "13px 10px 12px",
+                border: "none",
+                borderBottom: active ? `4px solid ${colors.pink}` : `4px solid ${colors.border}`,
+                background: active ? colors.pinkBg : colors.white,
+                color: active ? colors.pink : colors.textSecondary,
+                fontWeight: 500,
+                fontSize: font.body,
+                cursor: "pointer",
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
       </nav>
 
       {error && (
-        <div style={{ background: "#fde8e8", color: "#c81e1e", fontSize: 11, padding: 8 }}>
+        <div
+          style={{
+            background: colors.redBg,
+            color: colors.red,
+            fontSize: font.status,
+            padding: "10px 16px",
+            flexShrink: 0,
+          }}
+        >
           {error}
         </div>
       )}
 
-      <div style={{ flex: 1, overflowY: "auto" }}>
+      <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
         {tab === "annotate" && (
-          <AnnotateSelection selection={selection} config={config} configReady={configReady} />
+          <AnnotateSelection
+            selection={selection}
+            config={config}
+            configReady={configReady}
+            onOpenSettings={() => setTab("settings")}
+          />
         )}
-        {tab === "keys" && <KeyList nodes={linkedNodes} config={config} />}
+        {tab === "keys" && (
+          <KeyList
+            nodes={linkedNodes}
+            config={config}
+            configReady={configReady}
+            documentSettings={documentSettings}
+            onAppliedLanguageChange={(tag) => {
+              const next = { ...documentSettings, appliedLanguage: tag };
+              setDocumentSettings(next);
+              postToMain({ type: "save-document-settings", settings: next });
+            }}
+          />
+        )}
         {tab === "settings" && <Settings documentSettings={documentSettings} apiKey={apiKey} />}
       </div>
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        flex: 1,
-        padding: "10px 6px",
-        border: "none",
-        background: "transparent",
-        borderBottom: active ? "2px solid #18a0fb" : "2px solid transparent",
-        color: active ? "#18a0fb" : "#555",
-        fontWeight: active ? 600 : 400,
-        fontSize: 11,
-        cursor: "pointer",
-      }}
-    >
-      {children}
-    </button>
   );
 }

@@ -11,6 +11,9 @@ export interface DocumentSettings {
   /** Id of the "Localization" VariableCollection once created, cached so we
    * don't recreate/duplicate it on every use. */
   variableCollectionId?: string;
+  /** BCP-47 tag of the language currently applied to Localization variables
+   * for in-file preview (Keys tab). */
+  appliedLanguage?: string;
 }
 
 /** The secret project API key, stored per-user in figma.clientStorage and
@@ -78,6 +81,10 @@ export type UiToMainMessage =
   | { type: "unlink-key"; nodeId: string }
   | { type: "list-linked-nodes" }
   | { type: "jump-to-node"; nodeId: string }
+  | {
+      type: "apply-language-translations";
+      updates: Array<{ variableId: string; text: string }>;
+    }
   | { type: "resize"; width: number; height: number };
 
 export type MainToUiMessage =

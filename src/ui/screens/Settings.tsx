@@ -1,6 +1,13 @@
-import { useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import { postToMain } from "../../lib/messaging";
 import type { DocumentSettings } from "../../lib/types";
+import { Button } from "../components/Button";
+import { IconButton } from "../components/IconButton";
+import { IconEye, IconEyeOff } from "../components/icons";
+import { FieldLabel, TextField } from "../components/TextField";
+import { colors, font, space } from "../theme";
+
+const DEFAULT_API_URL = "https://app.tolgee.io";
 
 export function Settings({
   documentSettings,
@@ -13,8 +20,22 @@ export function Settings({
   const [projectId, setProjectId] = useState(documentSettings.projectId);
   const [key, setKey] = useState(apiKey);
   const [saved, setSaved] = useState(false);
+  const [showKey, setShowKey] = useState(false);
+
+  useEffect(() => {
+    setApiUrl(documentSettings.apiUrl);
+    setProjectId(documentSettings.projectId);
+  }, [documentSettings]);
+
+  useEffect(() => {
+    setKey(apiKey);
+  }, [apiKey]);
+
+  const linked = Boolean(documentSettings.projectId && apiKey);
+  const canSave = Boolean(apiUrl.trim() && projectId.trim() && key.trim());
 
   function save() {
+    if (!canSave) return;
     postToMain({
       type: "save-document-settings",
       settings: { ...documentSettings, apiUrl: apiUrl.trim(), projectId: projectId.trim() },
@@ -24,72 +45,143 @@ export function Settings({
     setTimeout(() => setSaved(false), 1500);
   }
 
+  function unlinkTolgee() {
+    setProjectId("");
+    setKey("");
+    setApiUrl(documentSettings.apiUrl || DEFAULT_API_URL);
+    postToMain({
+      type: "save-document-settings",
+      settings: {
+        ...documentSettings,
+        apiUrl: documentSettings.apiUrl || DEFAULT_API_URL,
+        projectId: "",
+      },
+    });
+    postToMain({ type: "save-api-key", apiKey: "" });
+  }
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 12 }}>
-      <div>
-        <label style={fieldLabel}>Tolgee API URL</label>
-        <input
+    <div style={screenColumn}>
+      {linked ? (
+        <div style={{ ...banner, background: colors.greenBg, color: colors.green }}>
+          <span style={bannerDot(colors.green)} />
+          Tolgee project linked
+        </div>
+      ) : (
+        <div style={{ ...banner, background: colors.pinkBg, color: colors.red }}>
+          <span style={{ ...bannerDot(colors.red), width: 14, height: 14 }} />
+          Tolgee not linked yet.
+        </div>
+      )}
+
+      <div style={fieldBlock}>
+        <FieldLabel>Tolgee API URL</FieldLabel>
+        <TextField
           type="text"
           value={apiUrl}
           onChange={(e) => setApiUrl(e.target.value)}
           placeholder="https://app.tolgee.io"
-          style={fieldInput}
         />
-        <div style={hint}>
-          Self-hosted instances must be added to <code>manifest.json</code>'s{" "}
-          <code>networkAccess.allowedDomains</code> and the plugin rebuilt.
-        </div>
       </div>
-      <div>
-        <label style={fieldLabel}>Project ID</label>
-        <input
+
+      <div style={fieldBlock}>
+        <FieldLabel>Project ID</FieldLabel>
+        <TextField
           type="text"
           value={projectId}
           onChange={(e) => setProjectId(e.target.value)}
-          placeholder="123"
-          style={fieldInput}
+          placeholder="Available on Tolgee project home."
         />
-        <div style={hint}>Shared with your team — stored on this Figma document.</div>
       </div>
-      <div>
-        <label style={fieldLabel}>Project API key</label>
-        <input
-          type="password"
+
+      <div style={fieldBlock}>
+        <FieldLabel>Project API key</FieldLabel>
+        <TextField
+          type={showKey ? "text" : "password"}
           value={key}
           onChange={(e) => setKey(e.target.value)}
-          placeholder="tgpak_…"
-          style={fieldInput}
+          placeholder="Can be generated in Tolgee integrations tab."
+          endAdornment={
+            <IconButton
+              aria-label={showKey ? "Hide API key" : "Show API key"}
+              onClick={() => setShowKey((v) => !v)}
+              style={{ width: 24, height: 24, padding: 0, color: colors.textSecondary }}
+            >
+              {showKey ? <IconEye size={18} /> : <IconEyeOff size={18} />}
+            </IconButton>
+          }
         />
-        <div style={hint}>
-          Stored only on this device (never written into the Figma file). Each
-          collaborator pastes their own key.
-        </div>
       </div>
-      <button type="button" onClick={save} style={primaryButton}>
-        {saved ? "Saved ✓" : "Save"}
-      </button>
+
+      <div style={ctaBlock}>
+        {linked ? (
+          <div style={{ display: "flex", gap: space.lg, width: "100%" }}>
+            <Button fullWidth variant="danger" onClick={unlinkTolgee}>
+              Unlink Tolgee
+            </Button>
+            <Button
+              fullWidth
+              variant={canSave ? "primary" : "muted"}
+              disabled={!canSave}
+              onClick={save}
+            >
+              {saved ? "Saved ✓" : "Save"}
+            </Button>
+          </div>
+        ) : (
+          <Button
+            fullWidth
+            variant={canSave ? "primary" : "muted"}
+            disabled={!canSave}
+            onClick={save}
+          >
+            {saved ? "Saved ✓" : "Save"}
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
 
-const fieldLabel: CSSProperties = {
-  display: "block",
-  fontWeight: 600,
-  fontSize: 11,
-  marginBottom: 4,
+function bannerDot(color: string) {
+  return {
+    width: 14,
+    height: 14,
+    borderRadius: "50%" as const,
+    background: color,
+    flexShrink: 0,
+  };
+}
+
+const screenColumn = {
+  padding: space.lg,
+  height: "100%",
+  boxSizing: "border-box" as const,
+  display: "flex",
+  flexDirection: "column" as const,
+  gap: space.lg,
 };
-const fieldInput: CSSProperties = {
+
+const banner = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  padding: "20px 24px",
+  borderRadius: 8,
+  fontSize: font.button,
+  fontWeight: 400,
   width: "100%",
-  boxSizing: "border-box",
-  padding: "6px 8px",
+  boxSizing: "border-box" as const,
 };
-const hint: CSSProperties = { fontSize: 10, color: "#888", marginTop: 3 };
-const primaryButton: CSSProperties = {
-  padding: "8px 12px",
-  background: "#18a0fb",
-  color: "#fff",
-  border: "none",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontWeight: 600,
+
+const fieldBlock = {
+  display: "flex",
+  flexDirection: "column" as const,
+  width: "100%",
+};
+
+const ctaBlock = {
+  marginTop: "auto",
+  width: "100%",
+  flexShrink: 0,
 };

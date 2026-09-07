@@ -30,7 +30,7 @@ const ANNOTATABLE_TYPES = new Set<SceneNode["type"]>([
   "VECTOR",
 ]);
 
-figma.showUI(__html__, { width: 340, height: 520 });
+figma.showUI(__html__, { width: 600, height: 700 });
 
 // ---- settings (document-level, shared by the whole team) ----
 
@@ -324,6 +324,33 @@ async function jumpToNode(nodeId: string): Promise<void> {
   figma.viewport.scrollAndZoomIntoView([node]);
 }
 
+async function applyLanguageTranslations(
+  updates: Array<{ variableId: string; text: string }>
+): Promise<void> {
+  if (updates.length === 0) return;
+
+  try {
+    const collection = await ensureLocalizationCollection();
+    const modeId = collection.modes[0]?.modeId;
+    if (!modeId) {
+      postToUi({ type: "error", message: "Localization variable collection has no modes." });
+      return;
+    }
+
+    for (const update of updates) {
+      const variable = await figma.variables.getVariableByIdAsync(update.variableId);
+      if (!variable) continue;
+      variable.setValueForMode(modeId, update.text);
+    }
+  } catch (err) {
+    postToUi({
+      type: "error",
+      message:
+        err instanceof Error ? err.message : "Failed to apply language translations to variables.",
+    });
+  }
+}
+
 function findParentPage(node: BaseNode): PageNode | null {
   let current: BaseNode | null = node;
   while (current && current.type !== "PAGE") current = current.parent;
@@ -359,6 +386,9 @@ onMessageFromUi((message: UiToMainMessage) => {
       break;
     case "jump-to-node":
       void jumpToNode(message.nodeId);
+      break;
+    case "apply-language-translations":
+      void applyLanguageTranslations(message.updates);
       break;
     case "resize":
       figma.ui.resize(message.width, message.height);
