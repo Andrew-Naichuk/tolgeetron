@@ -12,17 +12,22 @@ import { EmptyDashed } from "../components/EmptyDashed";
 import { IconButton } from "../components/IconButton";
 import { IconExternalLink, IconTarget, IconUnlink } from "../components/icons";
 import { KeyResultCard } from "../components/KeyResultCard";
+import { LoadingOverlay } from "../components/LoadingOverlay";
 import { SelectField } from "../components/SelectField";
 import { colors, formatKeyLabel, space } from "../theme";
 
 export function KeyList({
   nodes,
+  nodesLoading,
+  onRequestNodes,
   config,
   configReady,
   documentSettings,
   onAppliedLanguageChange,
 }: {
   nodes: LinkedNodeInfo[];
+  nodesLoading: boolean;
+  onRequestNodes: () => void;
   config: TolgeeClientConfig;
   configReady: boolean;
   documentSettings: DocumentSettings;
@@ -37,6 +42,7 @@ export function KeyList({
   );
   const [loadingLanguages, setLoadingLanguages] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [unlinkingId, setUnlinkingId] = useState<string | null>(null);
   const [languageError, setLanguageError] = useState<string | null>(null);
   const applyGen = useRef(0);
   const persistLanguage = useRef(onAppliedLanguageChange);
@@ -45,8 +51,12 @@ export function KeyList({
   appliedLanguageRef.current = documentSettings.appliedLanguage;
 
   useEffect(() => {
-    postToMain({ type: "list-linked-nodes" });
-  }, []);
+    onRequestNodes();
+  }, [onRequestNodes]);
+
+  useEffect(() => {
+    if (!nodesLoading) setUnlinkingId(null);
+  }, [nodesLoading]);
 
   useEffect(() => {
     if (!configReady) {
@@ -88,6 +98,7 @@ export function KeyList({
       cancelled = true;
     };
   }, [configReady, config.apiUrl, config.projectId, config.apiKey]);
+
   useEffect(() => {
     if (!configReady || !selectedLanguage) {
       setTranslationsByKeyId(new Map());
@@ -125,19 +136,30 @@ export function KeyList({
         if (gen === applyGen.current) setApplying(false);
       });
   }, [configReady, selectedLanguage, nodes, config.apiUrl, config.projectId, config.apiKey]);
+
   function handleLanguageChange(tag: string) {
     setSelectedLanguage(tag);
     if (tag) onAppliedLanguageChange(tag);
   }
 
   const selectorDisabled = !configReady || loadingLanguages || languages.length === 0;
+  const loading = nodesLoading || loadingLanguages || applying || Boolean(unlinkingId);
+  const loadingLabel = unlinkingId
+    ? "Unlinking key…"
+    : loadingLanguages
+      ? "Loading languages…"
+      : nodesLoading
+        ? "Loading linked keys…"
+        : applying
+          ? "Applying translations…"
+          : undefined;
 
   return (
     <div style={screenPad}>
       <SelectField
         label="Applied language"
         value={selectedLanguage}
-        disabled={selectorDisabled}
+        disabled={selectorDisabled || loading}
         onChange={(e) => handleLanguageChange(e.target.value)}
       >
         {!configReady ? (
@@ -182,6 +204,7 @@ export function KeyList({
                     <IconButton
                       aria-label="Jump to node"
                       title="Jump to node"
+                      disabled={loading}
                       onClick={() =>
                         postToMain({ type: "jump-to-node", nodeId: row.nodeId })
                       }
@@ -201,9 +224,11 @@ export function KeyList({
                     <IconButton
                       aria-label="Unlink"
                       title="Unlink"
-                      onClick={() =>
-                        postToMain({ type: "unlink-key", nodeId: row.nodeId })
-                      }
+                      disabled={loading}
+                      onClick={() => {
+                        setUnlinkingId(row.nodeId);
+                        postToMain({ type: "unlink-key", nodeId: row.nodeId });
+                      }}
                     >
                       <IconUnlink />
                     </IconButton>
@@ -214,11 +239,13 @@ export function KeyList({
           })}
         </div>
       )}
+      <LoadingOverlay visible={loading} label={loadingLabel} />
     </div>
   );
 }
 
 const screenPad = {
+  position: "relative" as const,
   padding: space.lg,
   height: "100%",
   boxSizing: "border-box" as const,

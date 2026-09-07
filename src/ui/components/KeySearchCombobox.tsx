@@ -5,6 +5,7 @@ import { colors, font, formatKeyLabel, space } from "../theme";
 import { IconButton } from "./IconButton";
 import { IconClose } from "./icons";
 import { KeyResultCard } from "./KeyResultCard";
+import { LoadingOverlay } from "./LoadingOverlay";
 import { TextField } from "./TextField";
 
 export function KeySearchCombobox({
@@ -49,6 +50,8 @@ export function KeySearchCombobox({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, disabled]);
 
+  const showResults = results.length > 0 || loading;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: space.sm }}>
       <TextField
@@ -70,21 +73,33 @@ export function KeySearchCombobox({
           ) : undefined
         }
       />
-      {loading && (
-        <div style={{ fontSize: font.status, color: colors.textMuted }}>Searching…</div>
-      )}
-      {results.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {results.map((key) => (
-            <KeyResultCard
-              key={key.keyId}
-              title={key.baseTranslation || key.keyName}
-              subtitle={formatKeyLabel(key.keyName, key.namespace)}
-              onClick={() => onSelect(key)}
-            />
-          ))}
+      {showResults && (
+        <div style={resultsWrap}>
+          {results.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {results.map((key) => (
+                <KeyResultCard
+                  key={key.keyId}
+                  title={key.baseTranslation || key.keyName}
+                  subtitle={formatKeyLabel(key.keyName, key.namespace)}
+                  onClick={() => onSelect(key)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div style={{ minHeight: 72 }} />
+          )}
+          <LoadingOverlay visible={loading} label="Searching keys…" />
         </div>
+      )}
+      {!loading && query.trim() && results.length === 0 && (
+        <div style={{ fontSize: font.status, color: colors.textMuted }}>No keys found</div>
       )}
     </div>
   );
 }
+
+const resultsWrap = {
+  position: "relative" as const,
+  minHeight: 72,
+};

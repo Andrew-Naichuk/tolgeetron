@@ -4,10 +4,20 @@ import { colors, radius } from "../theme";
 export function IconButton({
   children,
   style,
+  disabled,
   ...rest
 }: ButtonHTMLAttributes<HTMLButtonElement> & { children: ReactNode }) {
   return (
-    <button type="button" style={{ ...base, ...style }} {...rest}>
+    <button
+      type="button"
+      disabled={disabled}
+      style={{
+        ...base,
+        ...(disabled ? { opacity: 0.4, cursor: "default" } : null),
+        ...style,
+      }}
+      {...rest}
+    >
       {children}
     </button>
   );

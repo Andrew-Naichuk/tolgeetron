@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { postToMain } from "../../lib/messaging";
+import { onMessageFromMain, postToMain } from "../../lib/messaging";
 import { buildKeyUrl, createOrUpdateKey, type TolgeeClientConfig } from "../../lib/tolgeeClient";
 import type { SelectionInfo, TolgeeKeySearchResult, TolgeeLink } from "../../lib/types";
 import { Button } from "../components/Button";
 import { EmptyDashed } from "../components/EmptyDashed";
 import { KeySearchCombobox } from "../components/KeySearchCombobox";
+import { LoadingOverlay } from "../components/LoadingOverlay";
 import {
   LayerKey,
   LayerTitle,
@@ -39,9 +40,22 @@ export function AnnotateSelection({
   const [namespace, setNamespace] = useState("");
   const [baseText, setBaseText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState("Working…");
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [seededForNode, setSeededForNode] = useState<string | null>(null);
+
+  useEffect(() => {
+    return onMessageFromMain((message) => {
+      if (
+        message.type === "key-linked" ||
+        message.type === "key-unlinked" ||
+        message.type === "error"
+      ) {
+        setBusy(false);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (!selection || selection.link || !selection.supportsAnnotations) {
@@ -59,7 +73,7 @@ export function AnnotateSelection({
   }, [selection, seededForNode]);
 
   async function linkExisting(key: TolgeeKeySearchResult) {
-    if (!selection) return;
+    if (!selection || busy) return;
     const link: TolgeeLink = {
       keyId: key.keyId,
       keyName: key.keyName,
@@ -67,16 +81,20 @@ export function AnnotateSelection({
       projectId: config.projectId,
       baseTranslationPreview: key.baseTranslation,
     };
+    setBusy(true);
+    setBusyLabel("Linking key…");
+    setError(null);
     postToMain({ type: "link-key", nodeId: selection.nodeId, link });
   }
 
   async function createAndLink() {
-    if (!selection) return;
+    if (!selection || busy) return;
     if (!keyName.trim()) {
       setError("Key name is required.");
       return;
     }
     setBusy(true);
+    setBusyLabel("Creating key…");
     setError(null);
     try {
       const { keyId } = await createOrUpdateKey(config, {
@@ -85,6 +103,7 @@ export function AnnotateSelection({
         baseLanguage: BASE_LANGUAGE,
         text: baseText,
       });
+      setBusyLabel("Annotating layer…");
       const link: TolgeeLink = {
         keyId,
         keyName: keyName.trim(),
@@ -95,7 +114,6 @@ export function AnnotateSelection({
       postToMain({ type: "link-key", nodeId: selection.nodeId, link });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create key.");
-    } finally {
       setBusy(false);
     }
   }
@@ -133,7 +151,18 @@ export function AnnotateSelection({
   }
 
   if (selection?.link) {
-    return <LinkedView selection={selection} config={config} />;
+    return (
+      <LinkedView
+        selection={selection}
+        config={config}
+        busy={busy}
+        busyLabel={busyLabel}
+        onBusy={(label) => {
+          setBusy(true);
+          setBusyLabel(label);
+        }}
+      />
+    );
   }
 
   const canCreate = Boolean(selection && keyName.trim() && !busy);
@@ -168,7 +197,7 @@ export function AnnotateSelection({
         <KeySearchCombobox
           key={selection?.nodeId ?? "none"}
           config={config}
-          disabled={!selection}
+          disabled={!selection || busy}
           onQueryChange={setSearchQuery}
           onSelect={linkExisting}
         />
@@ -183,21 +212,21 @@ export function AnnotateSelection({
               type="text"
               placeholder="Key name"
               value={keyName}
-              disabled={!selection}
+              disabled={!selection || busy}
               onChange={(e) => setKeyName(e.target.value)}
             />
             <TextField
               type="text"
               placeholder="Namespace (optional)"
               value={namespace}
-              disabled={!selection}
+              disabled={!selection || busy}
               onChange={(e) => setNamespace(e.target.value)}
             />
             <TextField
               type="text"
               placeholder="Base translation"
               value={baseText}
-              disabled={!selection}
+              disabled={!selection || busy}
               onChange={(e) => setBaseText(e.target.value)}
             />
             {error && <div style={{ color: colors.red, fontSize: font.status }}>{error}</div>}
@@ -213,10 +242,11 @@ export function AnnotateSelection({
             variant={canCreate ? "primary" : "muted"}
             onClick={createAndLink}
           >
-            {busy ? "Creating…" : "Create and annotate"}
+            Create and annotate
           </Button>
         </div>
       )}
+      <LoadingOverlay visible={busy} label={busyLabel} />
     </div>
   );
 }
@@ -224,9 +254,15 @@ export function AnnotateSelection({
 function LinkedView({
   selection,
   config,
+  busy,
+  busyLabel,
+  onBusy,
 }: {
   selection: SelectionInfo;
   config: TolgeeClientConfig;
+  busy: boolean;
+  busyLabel: string;
+  onBusy: (label: string) => void;
 }) {
   const link = selection.link!;
   const variableName = formatVariableName(link.keyName, link.namespace);
@@ -256,7 +292,11 @@ function LinkedView({
           <Button
             fullWidth
             variant="danger"
-            onClick={() => postToMain({ type: "unlink-key", nodeId: selection.nodeId })}
+            disabled={busy}
+            onClick={() => {
+              onBusy("Unlinking key…");
+              postToMain({ type: "unlink-key", nodeId: selection.nodeId });
+            }}
           >
             Unlink
           </Button>
@@ -270,6 +310,7 @@ function LinkedView({
           </a>
         </div>
       </div>
+      <LoadingOverlay visible={busy} label={busyLabel} />
     </div>
   );
 }
@@ -297,6 +338,7 @@ function displayLayerLabel(selection: SelectionInfo): string {
 }
 
 const screenPad = {
+  position: "relative" as const,
   padding: space.lg,
   height: "100%",
   boxSizing: "border-box" as const,

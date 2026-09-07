@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { onMessageFromMain, postToMain } from "../lib/messaging";
 import type { DocumentSettings, LinkedNodeInfo, SelectionInfo } from "../lib/types";
+import { LoadingOverlay } from "./components/LoadingOverlay";
 import { colors, font } from "./theme";
 import { AnnotateSelection } from "./screens/AnnotateSelection";
 import { KeyList } from "./screens/KeyList";
@@ -22,16 +23,27 @@ export function App() {
   const [apiKey, setApiKey] = useState("");
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
   const [linkedNodes, setLinkedNodes] = useState<LinkedNodeInfo[]>([]);
+  const [linkedNodesLoading, setLinkedNodesLoading] = useState(false);
+  const [bootstrapped, setBootstrapped] = useState(false);
+  const [gotDocumentSettings, setGotDocumentSettings] = useState(false);
+  const [gotClientSettings, setGotClientSettings] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const refreshLinkedNodes = useCallback(() => {
+    setLinkedNodesLoading(true);
+    postToMain({ type: "list-linked-nodes" });
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onMessageFromMain((message) => {
       switch (message.type) {
         case "document-settings":
           setDocumentSettings(message.settings);
+          setGotDocumentSettings(true);
           break;
         case "client-settings":
           setApiKey(message.settings.apiKey);
+          setGotClientSettings(true);
           break;
         case "selection-changed":
           setSelection(message.selection);
@@ -40,32 +52,46 @@ export function App() {
           setSelection((prev) =>
             prev && prev.nodeId === message.nodeId ? { ...prev, link: message.link } : prev
           );
-          postToMain({ type: "list-linked-nodes" });
+          refreshLinkedNodes();
           break;
         case "key-unlinked":
           setSelection((prev) =>
             prev && prev.nodeId === message.nodeId ? { ...prev, link: null } : prev
           );
-          postToMain({ type: "list-linked-nodes" });
+          refreshLinkedNodes();
           break;
         case "linked-nodes":
           setLinkedNodes(message.nodes);
+          setLinkedNodesLoading(false);
           break;
         case "error":
           setError(message.message);
+          setLinkedNodesLoading(false);
           setTimeout(() => setError(null), 4000);
           break;
       }
     });
     postToMain({ type: "ui-ready" });
     return unsubscribe;
-  }, []);
+  }, [refreshLinkedNodes]);
+
+  useEffect(() => {
+    if (gotDocumentSettings && gotClientSettings) setBootstrapped(true);
+  }, [gotDocumentSettings, gotClientSettings]);
 
   const configReady = Boolean(documentSettings.projectId && apiKey);
   const config = { apiUrl: documentSettings.apiUrl, projectId: documentSettings.projectId, apiKey };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: colors.white }}>
+    <div
+      style={{
+        position: "relative",
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        background: colors.white,
+      }}
+    >
       <nav style={{ display: "flex", flexShrink: 0 }}>
         {TABS.map(({ id, label }) => {
           const active = tab === id;
@@ -106,7 +132,7 @@ export function App() {
         </div>
       )}
 
-      <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+      <div style={{ position: "relative", flex: 1, overflowY: "auto", minHeight: 0 }}>
         {tab === "annotate" && (
           <AnnotateSelection
             selection={selection}
@@ -118,6 +144,8 @@ export function App() {
         {tab === "keys" && (
           <KeyList
             nodes={linkedNodes}
+            nodesLoading={linkedNodesLoading}
+            onRequestNodes={refreshLinkedNodes}
             config={config}
             configReady={configReady}
             documentSettings={documentSettings}
@@ -129,6 +157,7 @@ export function App() {
           />
         )}
         {tab === "settings" && <Settings documentSettings={documentSettings} apiKey={apiKey} />}
+        <LoadingOverlay visible={!bootstrapped} label="Loading plugin…" />
       </div>
     </div>
   );
