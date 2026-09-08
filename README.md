@@ -1,5 +1,7 @@
 # Tolgeetron
 
+[![Figma Community](https://img.shields.io/badge/Figma-Community_Plugin-F24E1E?logo=figma&logoColor=white)](https://www.figma.com/community/plugin/1677630397288495696)
+
 Figma plugin that links [Tolgee](https://tolgee.io) keys to canvas nodes as native **Figma annotations** — a separate “Localization” pin category with the key name so developers can inspect the mapping in Figma instead of chasing it through layer names or Slack. Additionally, the plugin connects all the values to variables with the proper Tolgee key, so copying keys is easy in dev mode.
 
 ## How it works
@@ -29,8 +31,6 @@ In Figma Desktop: **Plugins → Development → Import plugin from manifest…**
 
 Annotations are visible in design and dev mode. The plugin scans all pages when listing linked keys (`documentAccess: "dynamic-page"`).
 
-## Published plugin
-👀 Community version is currently inder review - coming soon 👀
 
 ## Usage
 
