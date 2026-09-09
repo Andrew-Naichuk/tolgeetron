@@ -88,15 +88,27 @@ function mapKeySearchResults(
 }
 
 /** Search existing keys by name/translation text.
- * GET /v2/projects/{projectId}/keys/search, per KeyController.kt. Each
- * result's fields are id/name/namespace/baseTranslation, per
- * KeySearchResultView.kt (embedded under "keys", per the @Relation on
- * KeySearchSearchResultModel.kt). Pages until all matches are collected. */
+ * Without tag filters: GET /v2/projects/{projectId}/keys/search, per
+ * KeyController.kt (KeySearchResultView.kt fields under "keys").
+ * With tag filters: GET /translations with search + filterTag (same filters
+ * as the translation view), since /keys/search does not support tags.
+ * Pages until all matches are collected. */
 export async function searchKeys(
   config: TolgeeClientConfig,
-  search: string
+  search: string,
+  options?: { filterTags?: string[]; baseLanguage?: string }
 ): Promise<TolgeeKeySearchResult[]> {
   if (!search.trim()) return [];
+
+  const filterTags = (options?.filterTags ?? []).map((t) => t.trim()).filter(Boolean);
+  if (filterTags.length > 0) {
+    return searchKeysWithTags(
+      config,
+      search.trim(),
+      filterTags,
+      options?.baseLanguage?.trim() || "en"
+    );
+  }
 
   const pageSize = 100;
   const all: TolgeeKeySearchResult[] = [];
@@ -121,6 +133,89 @@ export async function searchKeys(
   }
 
   return all;
+}
+
+type TranslationsSearchPage = {
+  _embedded?: {
+    keys?: Array<{
+      keyId: number;
+      keyName: string;
+      keyNamespace?: string;
+      translations?: Record<string, { text?: string } | undefined>;
+    }>;
+  };
+  page?: { totalPages?: number };
+};
+
+async function searchKeysWithTags(
+  config: TolgeeClientConfig,
+  search: string,
+  filterTags: string[],
+  baseLanguage: string
+): Promise<TolgeeKeySearchResult[]> {
+  const pageSize = 100;
+  const all: TolgeeKeySearchResult[] = [];
+  let pageIndex = 0;
+  let totalPages = 1;
+
+  while (pageIndex < totalPages) {
+    const query = new URLSearchParams({
+      search,
+      size: String(pageSize),
+      page: String(pageIndex),
+      languages: baseLanguage,
+    });
+    for (const tag of filterTags) {
+      query.append("filterTag", tag);
+    }
+    const result = await request<TranslationsSearchPage>(
+      config,
+      `/translations?${query.toString()}`
+    );
+    const keys = result._embedded?.keys ?? [];
+    all.push(
+      ...keys.map((k) => ({
+        keyId: k.keyId,
+        keyName: k.keyName,
+        namespace: k.keyNamespace,
+        baseTranslation: k.translations?.[baseLanguage]?.text,
+      }))
+    );
+    totalPages = result.page?.totalPages ?? 1;
+    pageIndex += 1;
+    if (keys.length === 0) break;
+  }
+
+  return all;
+}
+
+/** List tag names used in the project.
+ * GET /v2/projects/{projectId}/tags, per TagsController. */
+export async function listTags(config: TolgeeClientConfig): Promise<string[]> {
+  const pageSize = 1000;
+  const names: string[] = [];
+  let pageIndex = 0;
+  let totalPages = 1;
+
+  while (pageIndex < totalPages) {
+    const query = new URLSearchParams({
+      size: String(pageSize),
+      page: String(pageIndex),
+      sort: "name,asc",
+    });
+    const result = await request<{
+      _embedded?: { tags?: Array<{ id: number; name: string }> };
+      page?: { totalPages?: number };
+    }>(config, `/tags?${query.toString()}`);
+    for (const tag of result._embedded?.tags ?? []) {
+      if (tag.name) names.push(tag.name);
+    }
+    totalPages = result.page?.totalPages ?? 1;
+    pageIndex += 1;
+    if ((result._embedded?.tags ?? []).length === 0) break;
+  }
+
+  return names;
 }
 
 export interface TolgeeLanguage {

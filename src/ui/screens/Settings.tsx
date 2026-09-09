@@ -4,6 +4,7 @@ import type { DocumentSettings } from "../../lib/types";
 import { Button } from "../components/Button";
 import { IconButton } from "../components/IconButton";
 import { IconEye, IconEyeOff } from "../components/icons";
+import { PayPalDonateButton } from "../components/PayPalDonateButton";
 import { FieldLabel, TextField } from "../components/TextField";
 import { colors, font, space } from "../theme";
 
@@ -113,6 +114,11 @@ export function Settings({
         />
       </div>
 
+      <div style={supportSection}>
+        <p style={supportText}>Enjoy using Tolgeetron? Buy developer a coffee!</p>
+        <PayPalDonateButton />
+      </div>
+
       <div style={ctaBlock}>
         {linked ? (
           <div style={{ display: "flex", gap: space.lg, width: "100%" }}>
@@ -178,6 +184,29 @@ const fieldBlock = {
   display: "flex",
   flexDirection: "column" as const,
   width: "100%",
+};
+
+const supportSection = {
+  display: "flex",
+  flexDirection: "column" as const,
+  alignItems: "center",
+  gap: space.md,
+  padding: `${space.md}px 0`,
+  width: "100%",
+  background: colors.white,
+  borderRadius: 12,
+  boxShadow: "0px 2px 6px rgba(61, 13, 77, 0.08)",
+  boxSizing: "border-box" as const,
+};
+
+const supportText = {
+  margin: 0,
+  width: "100%",
+  textAlign: "center" as const,
+  fontSize: font.body,
+  fontWeight: 500,
+  color: colors.text,
+  lineHeight: "normal",
 };
 
 const ctaBlock = {

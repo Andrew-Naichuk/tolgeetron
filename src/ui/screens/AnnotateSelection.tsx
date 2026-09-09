@@ -198,6 +198,7 @@ export function AnnotateSelection({
           key={selection?.nodeId ?? "none"}
           config={config}
           disabled={!selection || busy}
+          seedQuery={selection?.textContent?.trim() || undefined}
           onQueryChange={setSearchQuery}
           onSelect={linkExisting}
         />

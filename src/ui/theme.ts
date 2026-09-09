@@ -22,6 +22,7 @@ export const colors = {
 export const radius = {
   sm: 4,
   md: 8,
+  pill: 999,
 } as const;
 
 export const space = {
