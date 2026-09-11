@@ -14,6 +14,7 @@ const CLIENT_STORAGE_API_KEY = "tolgeeApiKey";
 const ANNOTATION_CATEGORY_LABEL = "Localization";
 const ANNOTATION_CATEGORY_COLOR: AnnotationCategoryColor = "pink";
 const VARIABLE_COLLECTION_NAME = "Localization";
+const APPLY_BATCH_SIZE = 40;
 
 /** Node types that support Figma's annotations API. */
 const ANNOTATABLE_TYPES = new Set<SceneNode["type"]>([
@@ -29,6 +30,15 @@ const ANNOTATABLE_TYPES = new Set<SceneNode["type"]>([
   "TEXT",
   "VECTOR",
 ]);
+
+const ANNOTATABLE_TYPE_LIST = [...ANNOTATABLE_TYPES] as Array<
+  SceneNode["type"] & NodeType
+>;
+
+/** Yields to Figma so the editor can paint / handle input between batches. */
+function yieldToFigma(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 figma.showUI(__html__, { width: 600, height: 700 });
 
@@ -89,6 +99,10 @@ async function ensureLocalizationCategory(): Promise<string> {
 
 // ---- string variables (TEXT nodes) ----
 
+/** Session cache: Localization variable name → id (avoids scanning all STRING vars). */
+const localizationVariableCache = new Map<string, string>();
+let localizationVariableCacheCollectionId: string | null = null;
+
 async function ensureLocalizationCollection(): Promise<VariableCollection> {
   const settings = loadDocumentSettings();
   const collections = await figma.variables.getLocalVariableCollectionsAsync();
@@ -113,6 +127,37 @@ function variableNameForLink(link: TolgeeLink): string {
   return link.namespace ? `${link.namespace}/${link.keyName}` : link.keyName;
 }
 
+async function ensureLocalizationVariableCache(
+  collection: VariableCollection
+): Promise<void> {
+  if (localizationVariableCacheCollectionId === collection.id) return;
+
+  localizationVariableCache.clear();
+  const variables = await Promise.all(
+    collection.variableIds.map((id) => figma.variables.getVariableByIdAsync(id))
+  );
+  for (const variable of variables) {
+    if (variable) localizationVariableCache.set(variable.name, variable.id);
+  }
+  localizationVariableCacheCollectionId = collection.id;
+}
+
+async function findLocalizationVariableByName(
+  collection: VariableCollection,
+  name: string
+): Promise<Variable | null> {
+  await ensureLocalizationVariableCache(collection);
+
+  const cachedId = localizationVariableCache.get(name);
+  if (!cachedId) return null;
+
+  const variable = await figma.variables.getVariableByIdAsync(cachedId);
+  if (variable && variable.variableCollectionId === collection.id) return variable;
+
+  localizationVariableCache.delete(name);
+  return null;
+}
+
 async function loadTextNodeFonts(node: TextNode): Promise<void> {
   const fonts =
     node.fontName === figma.mixed
@@ -134,13 +179,10 @@ async function bindLocalizationVariable(
   const modeId = collection.modes[0].modeId;
   const value = textNode.characters;
 
-  const locals = await figma.variables.getLocalVariablesAsync("STRING");
-  let variable =
-    locals.find((v) => v.variableCollectionId === collection.id && v.name === name) ??
-    null;
-
+  let variable = await findLocalizationVariableByName(collection, name);
   if (!variable) {
     variable = figma.variables.createVariable(name, collection, "STRING");
+    localizationVariableCache.set(name, variable.id);
   }
 
   variable.setValueForMode(modeId, value);
@@ -163,6 +205,7 @@ async function removeLocalizationVariable(
   }
   const variable = await figma.variables.getVariableByIdAsync(variableId);
   if (variable) {
+    localizationVariableCache.delete(variable.name);
     variable.remove();
   }
 }
@@ -202,6 +245,12 @@ async function findNodeById(nodeId: string): Promise<SceneNode | null> {
   const node = await figma.getNodeByIdAsync(nodeId);
   if (!node || node.removed) return null;
   return "type" in node ? (node as SceneNode) : null;
+}
+
+function findParentPage(node: BaseNode): PageNode | null {
+  let current: BaseNode | null = node;
+  while (current && current.type !== "PAGE") current = current.parent;
+  return (current as PageNode) ?? null;
 }
 
 function broadcastSelection(): void {
@@ -250,7 +299,15 @@ async function linkKey(nodeId: string, link: TolgeeLink): Promise<void> {
       { label: linked.keyName, categoryId },
     ];
     writeLink(node, linked);
-    postToUi({ type: "key-linked", nodeId, link: linked });
+
+    const page = findParentPage(node);
+    postToUi({
+      type: "key-linked",
+      nodeId,
+      nodeName: node.name,
+      pageName: page?.name ?? figma.currentPage.name,
+      link: linked,
+    });
   } catch (err) {
     postToUi({
       type: "error",
@@ -293,18 +350,35 @@ async function unlinkKey(nodeId: string): Promise<void> {
   postToUi({ type: "key-unlinked", nodeId });
 }
 
+let listLinkedNodesGen = 0;
+
 async function listLinkedNodes(): Promise<void> {
-  await figma.loadAllPagesAsync();
+  const gen = ++listLinkedNodesGen;
   const nodes: LinkedNodeInfo[] = [];
+
   for (const page of figma.root.children) {
-    page.findAll((n) => {
-      const link = readLink(n as SceneNode);
+    if (gen !== listLinkedNodesGen) return;
+
+    await page.loadAsync();
+    if (gen !== listLinkedNodesGen) return;
+
+    const candidates = page.findAllWithCriteria({ types: ANNOTATABLE_TYPE_LIST });
+    for (const n of candidates) {
+      const link = readLink(n);
       if (link) {
-        nodes.push({ nodeId: n.id, nodeName: n.name, pageName: page.name, link });
+        nodes.push({
+          nodeId: n.id,
+          nodeName: n.name,
+          pageName: page.name,
+          link,
+        });
       }
-      return false;
-    });
+    }
+
+    await yieldToFigma();
   }
+
+  if (gen !== listLinkedNodesGen) return;
   postToUi({ type: "linked-nodes", nodes });
 }
 
@@ -324,10 +398,17 @@ async function jumpToNode(nodeId: string): Promise<void> {
   figma.viewport.scrollAndZoomIntoView([node]);
 }
 
+let applyLanguageTranslationsGen = 0;
+
 async function applyLanguageTranslations(
   updates: Array<{ variableId: string; text: string }>
 ): Promise<void> {
-  if (updates.length === 0) return;
+  const gen = ++applyLanguageTranslationsGen;
+
+  if (updates.length === 0) {
+    postToUi({ type: "language-translations-applied" });
+    return;
+  }
 
   try {
     const collection = await ensureLocalizationCollection();
@@ -337,24 +418,36 @@ async function applyLanguageTranslations(
       return;
     }
 
-    for (const update of updates) {
-      const variable = await figma.variables.getVariableByIdAsync(update.variableId);
-      if (!variable) continue;
-      variable.setValueForMode(modeId, update.text);
+    for (let i = 0; i < updates.length; i += APPLY_BATCH_SIZE) {
+      if (gen !== applyLanguageTranslationsGen) return;
+
+      const batch = updates.slice(i, i + APPLY_BATCH_SIZE);
+      const variables = await Promise.all(
+        batch.map((update) => figma.variables.getVariableByIdAsync(update.variableId))
+      );
+
+      for (let j = 0; j < batch.length; j++) {
+        const variable = variables[j];
+        if (!variable) continue;
+        variable.setValueForMode(modeId, batch[j].text);
+      }
+
+      if (i + APPLY_BATCH_SIZE < updates.length) {
+        await yieldToFigma();
+      }
+    }
+
+    if (gen === applyLanguageTranslationsGen) {
+      postToUi({ type: "language-translations-applied" });
     }
   } catch (err) {
+    if (gen !== applyLanguageTranslationsGen) return;
     postToUi({
       type: "error",
       message:
         err instanceof Error ? err.message : "Failed to apply language translations to variables.",
     });
   }
-}
-
-function findParentPage(node: BaseNode): PageNode | null {
-  let current: BaseNode | null = node;
-  while (current && current.type !== "PAGE") current = current.parent;
-  return (current as PageNode) ?? null;
 }
 
 onMessageFromUi((message: UiToMainMessage) => {

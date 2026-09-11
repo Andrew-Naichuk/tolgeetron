@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { postToMain } from "../../lib/messaging";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { onMessageFromMain, postToMain } from "../../lib/messaging";
 import {
   buildKeyUrl,
   getTranslationsForKeys,
@@ -15,6 +15,18 @@ import { KeyResultCard } from "../components/KeyResultCard";
 import { LoadingOverlay } from "../components/LoadingOverlay";
 import { SelectField } from "../components/SelectField";
 import { colors, formatKeyLabel, space } from "../theme";
+
+function variableIdsFingerprint(nodes: LinkedNodeInfo[]): string {
+  return nodes
+    .map((n) => n.link.variableId)
+    .filter((id): id is string => Boolean(id))
+    .sort()
+    .join("\0");
+}
+
+function keyIdsFingerprint(nodes: LinkedNodeInfo[]): string {
+  return [...new Set(nodes.map((n) => n.link.keyId))].sort((a, b) => a - b).join(",");
+}
 
 export function KeyList({
   nodes,
@@ -45,18 +57,34 @@ export function KeyList({
   const [unlinkingId, setUnlinkingId] = useState<string | null>(null);
   const [languageError, setLanguageError] = useState<string | null>(null);
   const applyGen = useRef(0);
+  const appliedVariableIdsRef = useRef<Set<string>>(new Set());
+  const appliedLanguageRef = useRef("");
   const persistLanguage = useRef(onAppliedLanguageChange);
   persistLanguage.current = onAppliedLanguageChange;
-  const appliedLanguageRef = useRef(documentSettings.appliedLanguage);
-  appliedLanguageRef.current = documentSettings.appliedLanguage;
+  const savedAppliedLanguageRef = useRef(documentSettings.appliedLanguage);
+  savedAppliedLanguageRef.current = documentSettings.appliedLanguage;
+
+  const variableFingerprint = useMemo(() => variableIdsFingerprint(nodes), [nodes]);
+  const keyFingerprint = useMemo(() => keyIdsFingerprint(nodes), [nodes]);
 
   useEffect(() => {
     onRequestNodes();
   }, [onRequestNodes]);
 
   useEffect(() => {
-    if (!nodesLoading) setUnlinkingId(null);
-  }, [nodesLoading]);
+    return onMessageFromMain((message) => {
+      if (message.type === "key-unlinked") {
+        setUnlinkingId(null);
+      }
+      if (message.type === "language-translations-applied") {
+        setApplying(false);
+      }
+      if (message.type === "error") {
+        setApplying(false);
+        setUnlinkingId(null);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (!configReady) {
@@ -73,7 +101,7 @@ export function KeyList({
       .then((langs) => {
         if (cancelled) return;
         setLanguages(langs);
-        const saved = appliedLanguageRef.current;
+        const saved = savedAppliedLanguageRef.current;
         const preferred =
           (saved && langs.find((l) => l.tag === saved)?.tag) ||
           langs.find((l) => l.base)?.tag ||
@@ -102,40 +130,75 @@ export function KeyList({
   useEffect(() => {
     if (!configReady || !selectedLanguage) {
       setTranslationsByKeyId(new Map());
+      appliedVariableIdsRef.current = new Set();
+      appliedLanguageRef.current = "";
       return;
     }
 
     const keyIds = [...new Set(nodes.map((n) => n.link.keyId))];
     if (keyIds.length === 0) {
       setTranslationsByKeyId(new Map());
+      appliedVariableIdsRef.current = new Set();
+      appliedLanguageRef.current = selectedLanguage;
       return;
     }
 
+    const currentVariableIds = new Set(
+      nodes.map((n) => n.link.variableId).filter((id): id is string => Boolean(id))
+    );
+    const languageChanged = selectedLanguage !== appliedLanguageRef.current;
+    const prevIds = appliedVariableIdsRef.current;
+    const newVariableIds = languageChanged
+      ? currentVariableIds
+      : new Set([...currentVariableIds].filter((id) => !prevIds.has(id)));
+
     const gen = ++applyGen.current;
-    setApplying(true);
+    const needsApply = newVariableIds.size > 0;
+    setApplying(needsApply);
+
     void getTranslationsForKeys(config, { language: selectedLanguage, keyIds })
       .then((map) => {
         if (gen !== applyGen.current) return;
         setTranslationsByKeyId(map);
 
+        if (!needsApply) {
+          appliedVariableIdsRef.current = currentVariableIds;
+          appliedLanguageRef.current = selectedLanguage;
+          setApplying(false);
+          return;
+        }
+
         const updates = nodes
-          .filter((n) => n.link.variableId)
+          .filter((n) => n.link.variableId && newVariableIds.has(n.link.variableId))
           .map((n) => ({
             variableId: n.link.variableId!,
             text: map.get(n.link.keyId) ?? "",
           }));
+
+        appliedVariableIdsRef.current = currentVariableIds;
+        appliedLanguageRef.current = selectedLanguage;
+
         if (updates.length > 0) {
           postToMain({ type: "apply-language-translations", updates });
+        } else {
+          setApplying(false);
         }
       })
       .catch(() => {
         if (gen !== applyGen.current) return;
         setTranslationsByKeyId(new Map());
-      })
-      .finally(() => {
-        if (gen === applyGen.current) setApplying(false);
+        setApplying(false);
       });
-  }, [configReady, selectedLanguage, nodes, config.apiUrl, config.projectId, config.apiKey]);
+  }, [
+    configReady,
+    selectedLanguage,
+    variableFingerprint,
+    keyFingerprint,
+    nodes,
+    config.apiUrl,
+    config.projectId,
+    config.apiKey,
+  ]);
 
   function handleLanguageChange(tag: string) {
     setSelectedLanguage(tag);

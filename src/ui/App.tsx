@@ -52,13 +52,27 @@ export function App() {
           setSelection((prev) =>
             prev && prev.nodeId === message.nodeId ? { ...prev, link: message.link } : prev
           );
-          refreshLinkedNodes();
+          setLinkedNodes((prev) => {
+            const row: LinkedNodeInfo = {
+              nodeId: message.nodeId,
+              nodeName: message.nodeName,
+              pageName: message.pageName,
+              link: message.link,
+            };
+            const idx = prev.findIndex((n) => n.nodeId === message.nodeId);
+            if (idx >= 0) {
+              const next = [...prev];
+              next[idx] = row;
+              return next;
+            }
+            return [...prev, row];
+          });
           break;
         case "key-unlinked":
           setSelection((prev) =>
             prev && prev.nodeId === message.nodeId ? { ...prev, link: null } : prev
           );
-          refreshLinkedNodes();
+          setLinkedNodes((prev) => prev.filter((n) => n.nodeId !== message.nodeId));
           break;
         case "linked-nodes":
           setLinkedNodes(message.nodes);

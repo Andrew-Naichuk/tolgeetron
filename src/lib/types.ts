@@ -94,7 +94,17 @@ export type MainToUiMessage =
    * never written back into the document. */
   | { type: "client-settings"; settings: ClientSettings }
   | { type: "selection-changed"; selection: SelectionInfo | null }
-  | { type: "key-linked"; nodeId: string; link: TolgeeLink }
+  /** Sent after a successful link so the UI can upsert the Keys list without
+   * a full-document rescan. */
+  | {
+      type: "key-linked";
+      nodeId: string;
+      nodeName: string;
+      pageName: string;
+      link: TolgeeLink;
+    }
   | { type: "key-unlinked"; nodeId: string }
   | { type: "linked-nodes"; nodes: LinkedNodeInfo[] }
+  /** Sent when main finishes applying language preview values to variables. */
+  | { type: "language-translations-applied" }
   | { type: "error"; message: string };
